@@ -587,7 +587,7 @@ impl Settings {
   pub fn bitcoin_rpc_url(&self, wallet_name: Option<String>) -> String {
     let base_url = self.bitcoin_rpc_url.as_ref().unwrap();
     match wallet_name {
-      Some(wallet_name) => format!("{base_url}/wallet/{wallet_name}"),
+      Some(wallet_name) => format!("{}/wallet/{wallet_name}", base_url.trim_end_matches('/')),
       None => format!("{base_url}/"),
     }
   }
@@ -950,6 +950,14 @@ mod tests {
     assert_eq!(
       settings.bitcoin_rpc_url(Some("foo".into())),
       "127.0.0.1:8332/wallet/foo"
+    );
+  }
+
+  #[test]
+  fn wallet_rpc_url_trims_base_url_trailing_slashes() {
+    assert_eq!(
+      parse(&["--bitcoin-rpc-url=http://127.0.0.1:28476/"]).bitcoin_rpc_url(Some("miner".into())),
+      "http://127.0.0.1:28476/wallet/miner"
     );
   }
 

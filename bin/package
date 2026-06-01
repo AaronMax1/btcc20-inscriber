@@ -32,6 +32,9 @@ cp \
 if [[ $OS == windows-latest ]]; then
   cp "$EXECUTABLE" "$DIST/$PACKAGE/ord.exe"
   cp windows/BTCC20-Inscriber.bat "$DIST/$PACKAGE"
+  cp windows/deploy.txt "$DIST/$PACKAGE"
+  cp windows/mint.txt "$DIST/$PACKAGE"
+  cp windows/transfer.txt "$DIST/$PACKAGE"
   cp windows/README.md "$DIST/$PACKAGE/WINDOWS.md"
 else
   cp "$EXECUTABLE" "$DIST/$PACKAGE/ord"

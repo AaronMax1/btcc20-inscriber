@@ -1,6 +1,5 @@
 @echo off
 setlocal EnableExtensions EnableDelayedExpansion
-chcp 65001 >nul
 
 cd /d "%~dp0"
 
@@ -10,19 +9,20 @@ if "%~1"=="--profile" (
 )
 if /i "%~1"=="--profile=local" set PROFILE=local
 if /i "%~1"=="--profile=mainnet" set PROFILE=mainnet
+
 set CONFIG_FILE=btcc20-profiles.conf
 if not exist "%CONFIG_FILE%" if exist "..\btcc20-profiles.conf" set CONFIG_FILE=..\btcc20-profiles.conf
 
 if not exist "ord.exe" (
-  echo [错误] 当前目录没有 ord.exe
-  echo 请确认你下载的是 Windows release 压缩包，并且已经完整解压。
+  echo [ERROR] ord.exe was not found in the current directory.
+  echo Make sure the Windows release archive was fully extracted.
   pause
   exit /b 1
 )
 
 if not exist "%CONFIG_FILE%" (
-  echo [错误] 当前目录没有 %CONFIG_FILE%
-  echo 请确认 release 压缩包已经完整解压。
+  echo [ERROR] %CONFIG_FILE% was not found in the current directory.
+  echo Make sure the release archive was fully extracted.
   pause
   exit /b 1
 )
@@ -36,18 +36,23 @@ echo ==========================================
 echo              BTCC-20 Inscriber
 echo ==========================================
 echo Profile: %PROFILE%
-echo 链:     %CHAIN%
-echo RPC:    %RPC_URL%
-echo 钱包:   %WALLET%
+echo Chain:   %CHAIN%
+echo RPC:     %RPC_URL%
+echo Wallet:  %WALLET%
 echo.
-echo 1. Deploy 部署
-echo 2. Mint 铸造
-echo 3. Transfer 创建转账铭文
-echo 4. 查看帮助
-echo 5. 切换 Profile
-echo 0. 退出
+echo Parameter files:
+echo   Deploy:   deploy.txt
+echo   Mint:     mint.txt
+echo   Transfer: transfer.txt
 echo.
-set /p ACTION=请选择:
+echo 1. Deploy from deploy.txt
+echo 2. Mint from mint.txt
+echo 3. Transfer inscription from transfer.txt
+echo 4. Help
+echo 5. Switch profile
+echo 0. Exit
+echo.
+set /p ACTION=Choose:
 
 if "%ACTION%"=="1" goto deploy
 if "%ACTION%"=="2" goto mint
@@ -58,36 +63,38 @@ if "%ACTION%"=="0" exit /b 0
 goto menu
 
 :deploy
-call :common_tick
-set /p MAX=Max Supply 默认 21000000000:
+call :load_params deploy.txt
+if errorlevel 1 goto pause_menu
+if "%TICK%"=="" set TICK=cord
 if "%MAX%"=="" set MAX=21000000000
-set /p LIM=Mint Limit 默认 1000:
 if "%LIM%"=="" set LIM=1000
-set /p DEC=Decimals 默认 18:
 if "%DEC%"=="" set DEC=18
-set /p DEST=Destination 可留空:
 set CMD=ord.exe --chain %CHAIN% --bitcoin-rpc-url %RPC_URL% --bitcoin-rpc-username %RPC_USER% --bitcoin-rpc-password %RPC_PASSWORD% btcc20 inscribe --wallet %WALLET% deploy --tick %TICK% --max %MAX% --lim %LIM%
 if not "%DEC%"=="" set CMD=%CMD% --dec %DEC%
-if not "%DEST%"=="" set CMD=%CMD% --destination %DEST%
-goto run
+if not "%DESTINATION%"=="" set CMD=%CMD% --destination %DESTINATION%
+goto run_single
 
 :mint
-call :common_tick
-set /p AMT=Amount 默认 1000:
+call :load_params mint.txt
+if errorlevel 1 goto pause_menu
+if "%TICK%"=="" set TICK=cord
 if "%AMT%"=="" set AMT=1000
-set /p DEST=Destination 可留空:
+if "%COUNT%"=="" set COUNT=1
+set /a MINT_COUNT=%COUNT% >nul 2>nul
+if "%MINT_COUNT%"=="" set MINT_COUNT=1
+if %MINT_COUNT% LSS 1 set MINT_COUNT=1
 set CMD=ord.exe --chain %CHAIN% --bitcoin-rpc-url %RPC_URL% --bitcoin-rpc-username %RPC_USER% --bitcoin-rpc-password %RPC_PASSWORD% btcc20 inscribe --wallet %WALLET% mint --tick %TICK% --amt %AMT%
-if not "%DEST%"=="" set CMD=%CMD% --destination %DEST%
-goto run
+if not "%DESTINATION%"=="" set CMD=%CMD% --destination %DESTINATION%
+goto run_mint_many
 
 :transfer
-call :common_tick
-set /p AMT=Amount 默认 1000:
+call :load_params transfer.txt
+if errorlevel 1 goto pause_menu
+if "%TICK%"=="" set TICK=cord
 if "%AMT%"=="" set AMT=1000
-set /p DEST=Destination 可留空:
 set CMD=ord.exe --chain %CHAIN% --bitcoin-rpc-url %RPC_URL% --bitcoin-rpc-username %RPC_USER% --bitcoin-rpc-password %RPC_PASSWORD% btcc20 inscribe --wallet %WALLET% transfer --tick %TICK% --amt %AMT%
-if not "%DEST%"=="" set CMD=%CMD% --destination %DEST%
-goto run
+if not "%DESTINATION%"=="" set CMD=%CMD% --destination %DESTINATION%
+goto run_single
 
 :help
 ord.exe --chain %CHAIN% --bitcoin-rpc-url %RPC_URL% --bitcoin-rpc-username %RPC_USER% --bitcoin-rpc-password %RPC_PASSWORD% btcc20 inscribe --help
@@ -96,33 +103,85 @@ goto menu
 
 :switch_profile
 echo.
-echo 1. mainnet 正式环境
-echo 2. local 本地 regtest
+echo 1. mainnet
+echo 2. local regtest
 echo.
-set /p PROFILE_ACTION=请选择:
+set /p PROFILE_ACTION=Choose:
 if "%PROFILE_ACTION%"=="1" set PROFILE=mainnet
 if "%PROFILE_ACTION%"=="2" set PROFILE=local
 call :load_profile
 if errorlevel 1 pause
 goto menu
 
-:common_tick
-set /p TICK=Ticker 默认 cord:
-if "%TICK%"=="" set TICK=cord
-exit /b 0
-
-:run
+:run_single
 echo.
-echo 即将执行:
+echo Command to run:
 echo %CMD%
 echo.
-set /p CONFIRM=确认执行? 输入 y 继续:
+set /p CONFIRM=Type y to execute:
 if /i not "%CONFIRM%"=="y" goto menu
 echo.
 %CMD%
 echo.
 pause
 goto menu
+
+:run_mint_many
+echo.
+echo Command to run:
+echo %CMD%
+echo.
+echo Mint count: %MINT_COUNT%
+echo.
+set /p CONFIRM=Type y to execute:
+if /i not "%CONFIRM%"=="y" goto menu
+echo.
+for /l %%I in (1,1,%MINT_COUNT%) do (
+  echo [%%I/%MINT_COUNT%] Minting...
+  %CMD%
+  if errorlevel 1 (
+    echo [ERROR] Mint %%I failed. Stopping.
+    goto pause_menu
+  )
+)
+echo.
+echo Done.
+goto pause_menu
+
+:pause_menu
+echo.
+if "%BTCC20_NO_PAUSE%"=="1" goto menu
+pause
+goto menu
+
+:load_params
+set PARAM_FILE=%~1
+set TICK=
+set MAX=
+set LIM=
+set DEC=
+set AMT=
+set COUNT=
+set DESTINATION=
+if not exist "%PARAM_FILE%" (
+  echo [ERROR] %PARAM_FILE% was not found.
+  echo Create it in the same directory as this script.
+  exit /b 1
+)
+for /f "usebackq tokens=1,* delims==" %%A in ("%PARAM_FILE%") do (
+  set KEY=%%A
+  set VALUE=%%B
+  if not "!KEY!"=="" if not "!KEY:~0,1!"=="#" (
+    if /i "!KEY!"=="tick" set TICK=!VALUE!
+    if /i "!KEY!"=="max" set MAX=!VALUE!
+    if /i "!KEY!"=="lim" set LIM=!VALUE!
+    if /i "!KEY!"=="dec" set DEC=!VALUE!
+    if /i "!KEY!"=="amt" set AMT=!VALUE!
+    if /i "!KEY!"=="count" set COUNT=!VALUE!
+    if /i "!KEY!"=="destination" set DESTINATION=!VALUE!
+  )
+)
+exit /b 0
 
 :load_profile
 set CHAIN=
@@ -156,7 +215,7 @@ for /f "usebackq tokens=* delims=" %%L in ("%CONFIG_FILE%") do (
   )
 )
 if "%FOUND%"=="0" (
-  echo [错误] %CONFIG_FILE% 里找不到 profile: %PROFILE%
+  echo [ERROR] Profile not found in %CONFIG_FILE%: %PROFILE%
   exit /b 1
 )
 exit /b 0

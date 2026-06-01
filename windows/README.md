@@ -1,60 +1,64 @@
-# Windows 双击版说明
+# Windows double-click release
 
-这个目录里的文件会被打进 Windows release 压缩包。
-
-用户下载并解压后会看到：
+These files are included in the Windows release archive:
 
 ```text
 ord.exe
 BTCC20-Inscriber.bat
 btcc20-profiles.conf
+deploy.txt
+mint.txt
+transfer.txt
 README.md
 ```
 
-## 第一次使用
+## First use
 
-1. 双击 `BTCC20-Inscriber.bat`
-2. 默认使用 `mainnet` 正式环境配置
-3. 按菜单选择 Deploy / Mint / Transfer
+1. Double-click `BTCC20-Inscriber.bat`.
+2. Edit `btcc20-profiles.conf` if your RPC username, password, URL, or wallet name is different.
+3. Edit `deploy.txt`, `mint.txt`, or `transfer.txt`.
+4. Choose Deploy, Mint, or Transfer from the menu.
 
-如果你的 RPC 密码或钱包名不一样，右键编辑同目录下的 `btcc20-profiles.conf`。
+## Parameter files
 
-## btcc20-profiles.conf 示例
+Deploy uses `deploy.txt`:
 
 ```ini
-[mainnet]
-chain=mainnet
-rpc_url=http://127.0.0.1:28476
-rpc_user=user
-rpc_password=pass
-wallet=miner
-
-[local]
-chain=regtest
-rpc_url=http://127.0.0.1:28577
-rpc_user=btcc20
-rpc_password=btcc20
-wallet=btcc20-opensource
+tick=cord
+max=21000000000
+lim=1000
+dec=18
+destination=
 ```
 
-双击菜单里可以切换 `mainnet` / `local`。命令行也可以这样启动本地测试环境：
+Mint uses `mint.txt`. `count` controls how many mint inscriptions to create:
+
+```ini
+tick=cord
+amt=1000
+count=1
+destination=
+```
+
+Transfer uses `transfer.txt`:
+
+```ini
+tick=cord
+amt=1000
+destination=
+```
+
+Leave `destination=` empty to let the wallet generate a new owner address.
+
+## Profiles
+
+The default profile is `mainnet`. You can switch to the local regtest profile in the menu, or start the script with:
 
 ```bat
 BTCC20-Inscriber.bat --profile local
 ```
 
-## 使用菜单
+## Safety
 
-菜单支持：
-
-- Deploy 部署
-- Mint 铸造
-- Transfer 创建转账铭文
-
-执行前会显示即将运行的命令，并要求输入 `y` 确认。
-
-## 注意
-
-这个工具会使用本地 BTCC Core 钱包签名并广播交易。
-
-不要把 `btcc20-profiles.conf` 发给别人，因为里面可能有 RPC 用户名和密码。
+This tool signs and broadcasts transactions with your local BTCC Core wallet.
+Do not share `btcc20-profiles.conf`, because it may contain RPC credentials.

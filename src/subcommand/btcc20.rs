@@ -552,10 +552,13 @@ impl BtccRpc {
     let (username, password) = settings.bitcoin_credentials()?.get_user_pass()?;
 
     Ok(Self {
-      url: settings.bitcoin_rpc_url(wallet),
+      url: settings
+        .bitcoin_rpc_url(wallet)
+        .trim_end_matches('/')
+        .to_string(),
       username,
       password,
-      client: reqwest::blocking::Client::new(),
+      client: reqwest::blocking::Client::builder().no_proxy().build()?,
     })
   }
 
@@ -575,10 +578,15 @@ impl BtccRpc {
       request = request.basic_auth(username, self.password.as_ref());
     }
 
-    let response = request.send()?;
+    let response = request
+      .send()
+      .with_context(|| format!("failed to call BTCC RPC method `{method}` at {}", self.url))?;
     if let Err(error) = response.error_for_status_ref() {
       let body = response.text().unwrap_or_default();
-      bail!("{error}: {body}");
+      bail!(
+        "BTCC RPC method `{method}` at {} returned {error}: {body}",
+        self.url
+      );
     }
     let value: serde_json::Value = response.json()?;
     if !value["error"].is_null() {
@@ -670,10 +678,15 @@ impl BtccRpc {
       request = request.basic_auth(username, self.password.as_ref());
     }
 
-    let response = request.send()?;
+    let response = request
+      .send()
+      .with_context(|| format!("failed to call BTCC RPC method `{method}` at {}", self.url))?;
     if let Err(error) = response.error_for_status_ref() {
       let body = response.text().unwrap_or_default();
-      bail!("{error}: {body}");
+      bail!(
+        "BTCC RPC method `{method}` at {} returned {error}: {body}",
+        self.url
+      );
     }
     let response: RpcResponse<T> = response.json()?;
     if let Some(error) = response.error {
