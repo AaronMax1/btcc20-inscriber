@@ -27,6 +27,7 @@ README.md
 1. 先运行并同步好自己的 BTCC Core 节点。
 2. 确认本地钱包里有可用 BTCC，用来支付 commit/reveal 交易和手续费。
 3. 打开 `btcc20-profiles.conf`，把 RPC 地址、用户名、密码、钱包名改成自己的配置。
+4. 更换钱包也是在 `btcc20-profiles.conf` 里修改 `wallet=`。如果要用多个钱包 mint，可以准备多份配置，分别填不同的钱包名。
 
 默认使用 `[mainnet]` 配置。
 
