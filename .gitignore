@@ -5,6 +5,8 @@
 /.vscode
 /.cargo-home
 /.cargo-target
+/.cargo-target-stable
+/.rustup-home
 /docs/build
 /env
 /fuzz/artifacts
