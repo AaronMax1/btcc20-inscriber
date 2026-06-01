@@ -1,0 +1,118 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+CONFIG_FILE="${BTCC20_CONFIG:-$SCRIPT_DIR/btcc20-profiles.conf}"
+PROFILE="mainnet"
+
+ARGS=()
+while (($#)); do
+  case "$1" in
+    --profile)
+      if (($# < 2)); then
+        echo "error: --profile requires a value" >&2
+        exit 2
+      fi
+      PROFILE="$2"
+      shift 2
+      ;;
+    --profile=*)
+      PROFILE="${1#--profile=}"
+      shift
+      ;;
+    *)
+      ARGS+=("$1")
+      shift
+      ;;
+  esac
+done
+
+load_profile() {
+  local wanted="$1"
+  local in_section=0
+  local found=0
+  local line key value
+
+  if [[ ! -f "$CONFIG_FILE" ]]; then
+    echo "error: config file not found: $CONFIG_FILE" >&2
+    exit 1
+  fi
+
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    line="${line%%#*}"
+    line="${line//$'\r'/}"
+    line="${line#"${line%%[![:space:]]*}"}"
+    line="${line%"${line##*[![:space:]]}"}"
+    [[ -z "$line" ]] && continue
+
+    if [[ "$line" =~ ^\[(.*)\]$ ]]; then
+      if [[ "${BASH_REMATCH[1]}" == "$wanted" ]]; then
+        in_section=1
+        found=1
+      else
+        in_section=0
+      fi
+      continue
+    fi
+
+    if ((in_section)) && [[ "$line" == *=* ]]; then
+      key="${line%%=*}"
+      value="${line#*=}"
+      key="${key%"${key##*[![:space:]]}"}"
+      value="${value#"${value%%[![:space:]]*}"}"
+      case "$key" in
+        chain) PROFILE_CHAIN="$value" ;;
+        rpc_url) PROFILE_RPC_URL="$value" ;;
+        rpc_user) PROFILE_RPC_USER="$value" ;;
+        rpc_password) PROFILE_RPC_PASSWORD="$value" ;;
+        wallet) PROFILE_WALLET="$value" ;;
+      esac
+    fi
+  done < "$CONFIG_FILE"
+
+  if ((found == 0)); then
+    echo "error: profile '$wanted' not found in $CONFIG_FILE" >&2
+    exit 1
+  fi
+}
+
+PROFILE_CHAIN=""
+PROFILE_RPC_URL=""
+PROFILE_RPC_USER=""
+PROFILE_RPC_PASSWORD=""
+PROFILE_WALLET=""
+load_profile "$PROFILE"
+
+if [ -n "${BTCC20_ORD:-}" ]; then
+  ORD_BIN="$BTCC20_ORD"
+elif [ -x "$SCRIPT_DIR/ord" ]; then
+  ORD_BIN="$SCRIPT_DIR/ord"
+else
+  ORD_BIN="$SCRIPT_DIR/target/debug/ord"
+fi
+
+CHAIN="${BTCC20_CHAIN:-$PROFILE_CHAIN}"
+RPC_URL="${BTCC20_RPC_URL:-$PROFILE_RPC_URL}"
+RPC_USER="${BTCC20_RPC_USER:-$PROFILE_RPC_USER}"
+RPC_PASSWORD="${BTCC20_RPC_PASSWORD:-$PROFILE_RPC_PASSWORD}"
+WALLET="${BTCC20_WALLET:-$PROFILE_WALLET}"
+
+GLOBAL_ARGS=()
+[[ -n "$CHAIN" ]] && GLOBAL_ARGS+=(--chain "$CHAIN")
+[[ -n "$RPC_URL" ]] && GLOBAL_ARGS+=(--bitcoin-rpc-url "$RPC_URL")
+[[ -n "$RPC_USER" ]] && GLOBAL_ARGS+=(--bitcoin-rpc-username "$RPC_USER")
+[[ -n "$RPC_PASSWORD" ]] && GLOBAL_ARGS+=(--bitcoin-rpc-password "$RPC_PASSWORD")
+
+has_wallet=0
+for arg in "${ARGS[@]}"; do
+  if [[ "$arg" == "--wallet" || "$arg" == --wallet=* ]]; then
+    has_wallet=1
+    break
+  fi
+done
+
+if ((${#ARGS[@]} >= 1)) && [[ "${ARGS[0]}" == "inscribe" ]] && ((has_wallet == 0)) && [[ -n "$WALLET" ]]; then
+  ARGS=(inscribe --wallet "$WALLET" "${ARGS[@]:1}")
+fi
+
+exec "$ORD_BIN" "${GLOBAL_ARGS[@]}" btcc20 "${ARGS[@]}"

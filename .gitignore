@@ -1,0 +1,17 @@
+/*.redb
+/.btcc20-regtest
+/.idea/
+/.vagrant
+/.vscode
+/.cargo-home
+/.cargo-target
+/docs/build
+/env
+/fuzz/artifacts
+/fuzz/corpus
+/fuzz/coverage
+/fuzz/target
+/ord.log
+/target
+/test-times.txt
+/tmp

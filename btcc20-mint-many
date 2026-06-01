@@ -1,0 +1,292 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+CONFIG_FILE="${BTCC20_CONFIG:-$SCRIPT_DIR/btcc20-profiles.conf}"
+PROFILE="mainnet"
+TICK=""
+AMT=""
+COUNT=""
+DESTINATION=""
+WALLET=""
+WAIT_CONFIRMATIONS=1
+INTERVAL_SECONDS=0
+
+usage() {
+  cat <<'EOF'
+用法:
+  ./btcc20-mint-many --tick cord --amt 1000 --count 10
+  ./btcc20-mint-many --profile local --tick cord --amt 1000 --count 3
+  ./btcc20-mint-many --tick cord --amt 1000 --forever
+  ./btcc20-mint-many --tick cord --amt 1000 --count 20 --no-wait
+
+参数:
+  --profile NAME              使用 btcc20-profiles.conf 里的 profile，默认 mainnet
+  --tick TICK                 ticker，例如 cord
+  --amt AMOUNT                每张 mint 数量，例如 1000
+  --count N                  mint N 张
+  --forever                  一直 mint，直到手动 Ctrl+C
+  --wallet WALLET            指定钱包名；不填则使用 profile 或 BTCC20_WALLET
+  --destination ADDRESS       指定每张 mint 的归属地址；不填则钱包每次自动生成新地址
+  --wait-confirmations N      每张 reveal 等待 N 个确认后继续，默认 1
+  --no-wait                  广播后不等确认，直接继续下一张
+  --interval SECONDS          每次 mint 之间暂停秒数，默认 0
+  -h, --help                 显示帮助
+
+环境变量:
+  BTCC20_ORD                  指定 ord/ord.exe 路径
+  BTCC20_CONFIG               指定配置文件路径
+EOF
+}
+
+die() {
+  echo "error: $*" >&2
+  exit 1
+}
+
+load_profile() {
+  local wanted="$1"
+  local in_section=0
+  local found=0
+  local line key value
+
+  [[ -f "$CONFIG_FILE" ]] || die "config file not found: $CONFIG_FILE"
+
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    line="${line%%#*}"
+    line="${line//$'\r'/}"
+    line="${line#"${line%%[![:space:]]*}"}"
+    line="${line%"${line##*[![:space:]]}"}"
+    [[ -z "$line" ]] && continue
+
+    if [[ "$line" =~ ^\[(.*)\]$ ]]; then
+      if [[ "${BASH_REMATCH[1]}" == "$wanted" ]]; then
+        in_section=1
+        found=1
+      else
+        in_section=0
+      fi
+      continue
+    fi
+
+    if ((in_section)) && [[ "$line" == *=* ]]; then
+      key="${line%%=*}"
+      value="${line#*=}"
+      key="${key%"${key##*[![:space:]]}"}"
+      value="${value#"${value%%[![:space:]]*}"}"
+      case "$key" in
+        rpc_url) PROFILE_RPC_URL="$value" ;;
+        rpc_user) PROFILE_RPC_USER="$value" ;;
+        rpc_password) PROFILE_RPC_PASSWORD="$value" ;;
+        wallet) PROFILE_WALLET="$value" ;;
+      esac
+    fi
+  done < "$CONFIG_FILE"
+
+  ((found == 1)) || die "profile '$wanted' not found in $CONFIG_FILE"
+}
+
+json_field() {
+  local field="$1"
+  python3 -c '
+import json, sys
+field = sys.argv[1]
+data = json.load(sys.stdin)
+value = data
+for part in field.split("."):
+    value = value[part]
+print(value)
+' "$field"
+}
+
+rpc_wallet_url() {
+  local base="${BTCC20_RPC_URL:-$PROFILE_RPC_URL}"
+  local wallet="${BTCC20_WALLET:-${WALLET:-$PROFILE_WALLET}}"
+  [[ -n "$base" ]] || die "rpc_url is empty"
+  [[ -n "$wallet" ]] || die "wallet is empty"
+  echo "${base%/}/wallet/$wallet"
+}
+
+rpc_call() {
+  local method="$1"
+  local params="${2:-[]}"
+  local user="${BTCC20_RPC_USER:-$PROFILE_RPC_USER}"
+  local password="${BTCC20_RPC_PASSWORD:-$PROFILE_RPC_PASSWORD}"
+  local response
+
+  [[ -n "$user" ]] || die "rpc_user is empty"
+  [[ -n "$password" ]] || die "rpc_password is empty"
+
+  response=$(
+    curl --silent --show-error \
+      --user "$user:$password" \
+      --header 'content-type: text/plain;' \
+      --data-binary "{\"jsonrpc\":\"1.0\",\"id\":\"mint-many\",\"method\":\"$method\",\"params\":$params}" \
+      "$(rpc_wallet_url)"
+  )
+
+  python3 -c '
+import json, sys
+data = json.loads(sys.stdin.read())
+if data.get("error") is not None:
+    print(data["error"], file=sys.stderr)
+    sys.exit(1)
+print(json.dumps(data.get("result")))
+' <<<"$response"
+}
+
+wait_tx() {
+  local txid="$1"
+  local target="$2"
+  local confirmations
+  while true; do
+    confirmations=$(rpc_call gettransaction "[\"$txid\"]" | json_field confirmations)
+    echo "tx=$txid confirmations=$confirmations/$target"
+    if ((confirmations >= target)); then
+      break
+    fi
+    sleep 30
+  done
+}
+
+FOREVER=0
+while (($#)); do
+  case "$1" in
+    --profile)
+      (($# >= 2)) || die "--profile requires a value"
+      PROFILE="$2"
+      shift 2
+      ;;
+    --profile=*)
+      PROFILE="${1#--profile=}"
+      shift
+      ;;
+    --tick)
+      (($# >= 2)) || die "--tick requires a value"
+      TICK="$2"
+      shift 2
+      ;;
+    --tick=*)
+      TICK="${1#--tick=}"
+      shift
+      ;;
+    --amt)
+      (($# >= 2)) || die "--amt requires a value"
+      AMT="$2"
+      shift 2
+      ;;
+    --amt=*)
+      AMT="${1#--amt=}"
+      shift
+      ;;
+    --count)
+      (($# >= 2)) || die "--count requires a value"
+      COUNT="$2"
+      shift 2
+      ;;
+    --count=*)
+      COUNT="${1#--count=}"
+      shift
+      ;;
+    --forever)
+      FOREVER=1
+      shift
+      ;;
+    --wallet)
+      (($# >= 2)) || die "--wallet requires a value"
+      WALLET="$2"
+      shift 2
+      ;;
+    --wallet=*)
+      WALLET="${1#--wallet=}"
+      shift
+      ;;
+    --destination)
+      (($# >= 2)) || die "--destination requires a value"
+      DESTINATION="$2"
+      shift 2
+      ;;
+    --destination=*)
+      DESTINATION="${1#--destination=}"
+      shift
+      ;;
+    --wait-confirmations)
+      (($# >= 2)) || die "--wait-confirmations requires a value"
+      WAIT_CONFIRMATIONS="$2"
+      shift 2
+      ;;
+    --wait-confirmations=*)
+      WAIT_CONFIRMATIONS="${1#--wait-confirmations=}"
+      shift
+      ;;
+    --no-wait)
+      WAIT_CONFIRMATIONS=0
+      shift
+      ;;
+    --interval)
+      (($# >= 2)) || die "--interval requires a value"
+      INTERVAL_SECONDS="$2"
+      shift 2
+      ;;
+    --interval=*)
+      INTERVAL_SECONDS="${1#--interval=}"
+      shift
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    *)
+      die "unknown argument: $1"
+      ;;
+  esac
+done
+
+[[ -n "$TICK" ]] || die "--tick is required"
+[[ -n "$AMT" ]] || die "--amt is required"
+if ((FOREVER == 0)); then
+  [[ -n "$COUNT" ]] || die "--count or --forever is required"
+fi
+
+[[ "$WAIT_CONFIRMATIONS" =~ ^[0-9]+$ ]] || die "--wait-confirmations must be a number"
+[[ "$INTERVAL_SECONDS" =~ ^[0-9]+$ ]] || die "--interval must be a number"
+if [[ -n "$COUNT" ]]; then
+  [[ "$COUNT" =~ ^[0-9]+$ ]] || die "--count must be a number"
+fi
+
+PROFILE_RPC_URL=""
+PROFILE_RPC_USER=""
+PROFILE_RPC_PASSWORD=""
+PROFILE_WALLET=""
+load_profile "$PROFILE"
+
+index=1
+while true; do
+  if ((FOREVER == 0 && index > COUNT)); then
+    break
+  fi
+
+  echo "mint #$index tick=$TICK amt=$AMT profile=$PROFILE"
+  args=(--profile "$PROFILE" inscribe mint --tick "$TICK" --amt "$AMT")
+  if [[ -n "$WALLET" ]]; then
+    args=(--profile "$PROFILE" inscribe --wallet "$WALLET" mint --tick "$TICK" --amt "$AMT")
+  fi
+  if [[ -n "$DESTINATION" ]]; then
+    args+=(--destination "$DESTINATION")
+  fi
+
+  output=$("$SCRIPT_DIR/btcc20-inscriber" "${args[@]}")
+  echo "$output"
+  reveal=$(json_field inscription.reveal <<<"$output")
+  echo "mint #$index reveal=$reveal"
+
+  if ((WAIT_CONFIRMATIONS > 0)); then
+    wait_tx "$reveal" "$WAIT_CONFIRMATIONS"
+  fi
+
+  if ((INTERVAL_SECONDS > 0)); then
+    sleep "$INTERVAL_SECONDS"
+  fi
+
+  index=$((index + 1))
+done
