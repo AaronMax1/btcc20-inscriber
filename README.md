@@ -77,6 +77,8 @@ BTCC20-Inscriber.bat
 
 ## 注意
 
+单个钱包每个区块大概只能打十几张。想打更多，建议准备多个钱包，分别配置后分开 mint。
+
 不要把 `btcc20-profiles.conf` 里的 RPC 用户名和密码发给别人。
 
 不要把 BTCC Core RPC 暴露到公网。
